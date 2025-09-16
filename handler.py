@@ -443,6 +443,8 @@ SUPPORTED_AUDIO_CODECS = {"ogg", "mp3", "flac", "wav"}
 
 AUDIO_MIME_TYPES = {
     "ogg": "audio/ogg",
+    "ogx": "audio/ogg",
+    "opus": "audio/ogg",
     "mp3": "audio/mpeg",
     "flac": "audio/flac",
     "wav": "audio/wav",
@@ -883,7 +885,7 @@ def handler(job):
                 errors,
             )
 
-            handled_keys = {"images", "audios", "videos"}
+            handled_keys = {"images", "audios", "audio", "videos", "video"}
             other_keys = [k for k in node_output.keys() if k not in handled_keys]
             if other_keys:
                 warn_msg = (
