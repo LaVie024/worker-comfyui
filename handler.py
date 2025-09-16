@@ -864,26 +864,12 @@ def handler(job):
                 image_outputs,
                 errors,
             )
-            process_output_assets(
-                job_id,
-                node_id,
-                node_output,
-                "audios",
-                "audio",
-                "audio file(s)",
-                audio_outputs,
-                errors,
-            )
-            process_output_assets(
-                job_id,
-                node_id,
-                node_output,
-                "videos",
-                "video",
-                "video file(s)",
-                video_outputs,
-                errors,
-            )
+
+            for akey in ("audios", "audio"):
+                process_output_assets(job_id, node_id, node_output, akey, "audio", "audio file(s)", audio_outputs, errors)
+
+            for vkey in ("videos", "video"):
+                process_output_assets(job_id, node_id, node_output, vkey, "video", "video file(s)", video_outputs, errors)
 
             handled_keys = {"images", "audios", "audio", "videos", "video"}
             other_keys = [k for k in node_output.keys() if k not in handled_keys]
