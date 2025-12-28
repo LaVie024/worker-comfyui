@@ -16,8 +16,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_PREFER_BINARY=1
 # Ensures output from python is printed immediately to the terminal without buffering
 ENV PYTHONUNBUFFERED=1
-# Speed up some cmake builds
-ENV CMAKE_BUILD_PARALLEL_LEVEL=8
+# Keep native builds from over-subscribing memory while still parallelizing a bit
+ENV CMAKE_BUILD_PARALLEL_LEVEL=2
+# Limit PyTorch extension build parallelism to avoid excessive RAM usage during SageAttention compilation
+ENV MAX_JOBS=2
 # Ensure compiled extensions include Blackwell (SM100) support along with previous architectures
 ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0;10.0"
 # Make sure the CUDA toolkit paths are available for native builds
@@ -74,7 +76,8 @@ RUN if [ "$ENABLE_PYTORCH_UPGRADE" = "true" ]; then \
 # Build SageAttention v2 from source to ensure kernels compile against the CUDA 12.8 toolkit (including Blackwell SM100)
 RUN git clone --branch v2.2.0 --depth 1 https://github.com/thu-ml/SageAttention.git /tmp/SageAttention \
     && cd /tmp/SageAttention \
-    && uv pip install --no-build-isolation --no-deps -v . \
+    && MAX_JOBS=${MAX_JOBS} CMAKE_BUILD_PARALLEL_LEVEL=${CMAKE_BUILD_PARALLEL_LEVEL} \
+       uv pip install --no-build-isolation --no-deps -v . \
     && cd / \
     && rm -rf /tmp/SageAttention
 
