@@ -20,6 +20,10 @@ ENV PYTHONUNBUFFERED=1
 ENV CMAKE_BUILD_PARALLEL_LEVEL=8
 # Ensure compiled extensions include Blackwell (SM100) support along with previous architectures
 ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0;10.0"
+# Make sure the CUDA toolkit paths are available for native builds
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH="/usr/local/cuda/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
 
 # Install Python, git and other necessary tools
 RUN apt-get update && apt-get install -y \
@@ -30,6 +34,7 @@ RUN apt-get update && apt-get install -y \
     wget \
     build-essential \
     ninja-build \
+    cmake \
     libgl1 \
     libglib2.0-0 \
     libsm6 \
@@ -66,8 +71,12 @@ RUN if [ "$ENABLE_PYTORCH_UPGRADE" = "true" ]; then \
       uv pip install --force-reinstall torch torchvision torchaudio --index-url ${PYTORCH_INDEX_URL}; \
     fi
 
-# Install SageAttention v2 with build isolation disabled to compile kernels for the current CUDA toolkit
-RUN uv pip install sageattention==2.2.0 --no-build-isolation
+# Build SageAttention v2 from source to ensure kernels compile against the CUDA 12.8 toolkit (including Blackwell SM100)
+RUN git clone --branch v2.2.0 --depth 1 https://github.com/thu-ml/SageAttention.git /tmp/SageAttention \
+    && cd /tmp/SageAttention \
+    && uv pip install --no-build-isolation --no-deps -v . \
+    && cd / \
+    && rm -rf /tmp/SageAttention
 
 # Change working directory to ComfyUI
 WORKDIR /comfyui
