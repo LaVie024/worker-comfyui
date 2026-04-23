@@ -1,5 +1,5 @@
 # Build argument for base image selection
-ARG BASE_IMAGE=nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
+ARG BASE_IMAGE=nvidia/cuda:13.2.1-cudnn-runtime-ubuntu24.04
 
 # Stage 1: Base image with common dependencies
 FROM ${BASE_IMAGE} AS base
@@ -21,8 +21,8 @@ ENV CMAKE_BUILD_PARALLEL_LEVEL=8
 
 # Install Python, git and other necessary tools
 RUN apt-get update && apt-get install -y \
-    python3.12 \
-    python3.12-venv \
+    python3.13 \
+    python3.13-venv \
     git \
     wget \
     libgl1 \
@@ -31,7 +31,7 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender1 \
     ffmpeg \
-    && ln -sf /usr/bin/python3.12 /usr/bin/python \
+    && ln -sf /usr/bin/python3.13 /usr/bin/python \
     && ln -sf /usr/bin/pip3 /usr/bin/pip
 
 # Clean up to reduce image size
@@ -47,7 +47,7 @@ RUN wget -qO- https://astral.sh/uv/install.sh | sh \
 ENV PATH="/opt/venv/bin:${PATH}"
 
 # Install comfy-cli + dependencies needed by it to install ComfyUI
-RUN uv pip install comfy-cli pip setuptools wheel
+RUN uv pip install comfy-cli pip setuptools wheel pywavelets
 
 # Install ComfyUI
 RUN if [ -n "${CUDA_VERSION_FOR_COMFY}" ]; then \
@@ -95,7 +95,23 @@ CMD ["/start.sh"]
 WORKDIR /comfyui
 
 # Create necessary directories upfront
-RUN mkdir -p models/checkpoints models/vae models/unet models/clip models/loras
+RUN mkdir -p models/checkpoints models/vae models/unet models/clip models/loras models/RMBG/BiRefNet models/RMBG/RMBG-2.0 models/ultralytics/bbox models/ultralytics/segm
 
-# Stage 3: Final image
+# Stage 3: Setup scripts
+RUN mkdir -p /dl_scripts
+ADD src/scripts/*.sh /dl_scripts
+RUN chmod +x /dl_scripts/*.sh
+
+# Stage 4: Custom Nodes
+RUN comfy-node-install comfyui-easy-use ComfyUI_SamplingUtils comfyui-image-saver comfyui-impact-pack comfyui-impact-subpack comfyui-kjnodes comfyui-rmbg was-ns comfyui_fill-nodes lopi999-nodes rgthree-comfy save-image-extended-comfyui audio-batch ComfyUI-WanVideoWrapper ComfyUI-EasyColorCorrector comfyui_nvidia_rtx_nodes
+RUN ./dl_scripts/custom_nodes.sh
+
+# Stage 5: Models
+RUN ./dl_scripts/diff_te.sh # Diffusion models, TEs & VAEs
+RUN ./dl_scripts/loras.sh # SDXL LoRAs
+RUN ./dl_scripts/aux.sh # Etc.
+RUN ./dl_scripts/checkpoints.sh # SDXL Checkpoints
+
+# Stage 6: Final image
+WORKDIR /comfyui
 FROM base AS final
