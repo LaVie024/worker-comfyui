@@ -98,19 +98,19 @@ WORKDIR /comfyui
 RUN mkdir -p models/checkpoints models/vae models/unet models/clip models/loras models/RMBG/BiRefNet models/RMBG/RMBG-2.0 models/ultralytics/bbox models/ultralytics/segm
 
 # Stage 3: Setup scripts
-RUN mkdir -p /dl_scripts
-ADD src/scripts/*.sh /dl_scripts
-RUN chmod +x /dl_scripts/*.sh
+RUN mkdir -p /dol_scripts
+ADD src/dl_scripts/*.sh /dol_scripts
+RUN chmod +x /dol_scripts/*.sh
 
 # Stage 4: Custom Nodes
 RUN comfy-node-install comfyui-easy-use ComfyUI_SamplingUtils comfyui-image-saver comfyui-impact-pack comfyui-impact-subpack comfyui-kjnodes comfyui-rmbg was-ns comfyui_fill-nodes lopi999-nodes rgthree-comfy save-image-extended-comfyui audio-batch ComfyUI-WanVideoWrapper ComfyUI-EasyColorCorrector comfyui_nvidia_rtx_nodes
-RUN ./dl_scripts/custom_nodes.sh
+RUN ./dol_scripts/custom_nodes.sh
 
 # Stage 5: Models
-RUN ./dl_scripts/diff_te.sh # Diffusion models, TEs & VAEs
-RUN ./dl_scripts/loras.sh # SDXL LoRAs
-RUN ./dl_scripts/aux.sh # Etc.
-RUN ./dl_scripts/checkpoints.sh # SDXL Checkpoints
+RUN ./dol_scripts/diff_te.sh # Diffusion models, TEs & VAEs
+RUN ./dol_scripts/loras.sh # SDXL LoRAs
+RUN ./dol_scripts/aux.sh # Etc.
+RUN ./dol_scripts/checkpoints.sh # SDXL Checkpoints
 
 # Stage 6: Final image
 WORKDIR /comfyui
