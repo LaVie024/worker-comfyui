@@ -1,0 +1,121 @@
+# Build argument for base image selection
+ARG BASE_IMAGE=nvidia/cuda:12.8.0-cudnn-devel-ubuntu24.04
+
+# Stage 1: Base image with common dependencies
+FROM ${BASE_IMAGE} AS base
+
+# Build arguments for this stage with sensible defaults for standalone builds
+ARG COMFYUI_VERSION=latest
+ARG CUDA_VERSION_FOR_COMFY
+ARG ENABLE_PYTORCH_UPGRADE=false
+ARG PYTORCH_INDEX_URL
+
+# Prevents prompts from packages asking for user input during installation
+ENV DEBIAN_FRONTEND=noninteractive
+# Prefer binary wheels over source distributions for faster pip installations
+ENV PIP_PREFER_BINARY=1
+# Ensures output from python is printed immediately to the terminal without buffering
+ENV PYTHONUNBUFFERED=1
+# Keep native builds from over-subscribing memory while still parallelizing a bit
+ENV CMAKE_BUILD_PARALLEL_LEVEL=2
+# Limit PyTorch extension build parallelism to avoid excessive RAM usage during SageAttention compilation
+ENV MAX_JOBS=2
+# Ensure compiled extensions include Blackwell (SM100) support along with previous architectures
+ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0;10.0"
+# Make sure the CUDA toolkit paths are available for native builds
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH="/usr/local/cuda/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
+
+# Install Python, git and other necessary tools
+RUN apt-get update && apt-get install -y \
+    python3.12 \
+    python3.12-venv \
+    python3.12-dev \
+    git \
+    wget \
+    build-essential \
+    ninja-build \
+    cmake \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    ffmpeg \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python \
+    && ln -sf /usr/bin/pip3 /usr/bin/pip
+
+# Clean up to reduce image size
+RUN apt-get autoremove -y && apt-get clean -y && rm -rf /var/lib/apt/lists/*
+
+# Install uv (latest) using official installer and create isolated venv
+RUN wget -qO- https://astral.sh/uv/install.sh | sh \
+    && ln -s /root/.local/bin/uv /usr/local/bin/uv \
+    && ln -s /root/.local/bin/uvx /usr/local/bin/uvx \
+    && uv venv /opt/venv
+
+# Use the virtual environment for all subsequent commands
+ENV PATH="/opt/venv/bin:${PATH}"
+
+# Install comfy-cli + dependencies needed by it to install ComfyUI
+RUN uv pip install comfy-cli pip setuptools wheel
+
+# Install ComfyUI
+RUN if [ -n "${CUDA_VERSION_FOR_COMFY}" ]; then \
+      /usr/bin/yes | comfy --workspace /comfyui install --version "${COMFYUI_VERSION}" --cuda-version "${CUDA_VERSION_FOR_COMFY}" --nvidia; \
+    else \
+      /usr/bin/yes | comfy --workspace /comfyui install --version "${COMFYUI_VERSION}" --nvidia; \
+    fi
+
+# Upgrade PyTorch if needed (for newer CUDA versions)
+RUN if [ "$ENABLE_PYTORCH_UPGRADE" = "true" ]; then \
+      uv pip install --force-reinstall torch torchvision torchaudio --index-url ${PYTORCH_INDEX_URL}; \
+    fi
+
+# Build SageAttention v2 from source to ensure kernels compile against the CUDA 12.8 toolkit (including Blackwell SM100)
+RUN git clone --branch v2.2.0 --depth 1 https://github.com/thu-ml/SageAttention.git /tmp/SageAttention \
+    && cd /tmp/SageAttention \
+    && MAX_JOBS=${MAX_JOBS} CMAKE_BUILD_PARALLEL_LEVEL=${CMAKE_BUILD_PARALLEL_LEVEL} \
+       uv pip install --no-build-isolation --no-deps -v . \
+    && cd / \
+    && rm -rf /tmp/SageAttention
+
+# Change working directory to ComfyUI
+WORKDIR /comfyui
+
+# Support for the network volume
+ADD src/extra_model_paths.yaml ./
+
+# Go back to the root
+WORKDIR /
+
+# Install Python runtime dependencies for the handler
+RUN uv pip install runpod requests websocket-client
+
+# Add application code and scripts
+ADD src/start.sh handler.py test_input.json ./
+RUN chmod +x /start.sh
+
+# Add script to install custom nodes
+COPY scripts/comfy-node-install.sh /usr/local/bin/comfy-node-install
+RUN chmod +x /usr/local/bin/comfy-node-install
+
+# Prevent pip from asking for confirmation during uninstall steps in custom nodes
+ENV PIP_NO_INPUT=1
+
+# Copy helper script to switch Manager network mode at container start
+COPY scripts/comfy-manager-set-mode.sh /usr/local/bin/comfy-manager-set-mode
+RUN chmod +x /usr/local/bin/comfy-manager-set-mode
+
+# Set the default command to run when starting the container
+CMD ["/start.sh"]
+
+# Change working directory to ComfyUI
+WORKDIR /comfyui
+
+# Create necessary directories upfront
+RUN mkdir -p models/checkpoints models/vae models/unet models/clip models/loras
+
+# Stage 3: Final image
+FROM base AS final
