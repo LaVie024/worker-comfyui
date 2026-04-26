@@ -55,6 +55,8 @@ if os.environ.get("WEBSOCKET_TRACE", "false").lower() == "true":
 
 # Host where ComfyUI is running
 COMFY_HOST = "127.0.0.1:8188"
+
+AUDIO_EXTENSIONS = {".ogg", ".ogx", ".flac", ".mp3", ".wav"}
 # Enforce a clean state after each job is done
 # see https://docs.runpod.io/docs/handler-additional-controls#refresh-worker
 REFRESH_WORKER = os.environ.get("REFRESH_WORKER", "false").lower() == "true"
@@ -621,6 +623,7 @@ def handler(job):
     client_id = str(uuid.uuid4())
     prompt_id = None
     output_data = []
+    audio_data = []
     errors = []
 
     try:
@@ -838,8 +841,93 @@ def handler(job):
                         error_msg = f"Failed to fetch image data for {filename} from /view endpoint."
                         errors.append(error_msg)
 
+            if "audio" in node_output:
+                print(
+                    f"worker-comfyui - Node {node_id} contains {len(node_output['audio'])} audio file(s)"
+                )
+                for audio_info in node_output["audio"]:
+                    filename = audio_info.get("filename")
+                    subfolder = audio_info.get("subfolder", "")
+                    audio_type = audio_info.get("type")
+
+                    if audio_type == "temp":
+                        print(
+                            f"worker-comfyui - Skipping audio {filename} because type is 'temp'"
+                        )
+                        continue
+
+                    if not filename:
+                        warn_msg = f"Skipping audio in node {node_id} due to missing filename: {audio_info}"
+                        print(f"worker-comfyui - {warn_msg}")
+                        errors.append(warn_msg)
+                        continue
+
+                    file_extension = os.path.splitext(filename)[1].lower()
+                    if file_extension not in AUDIO_EXTENSIONS:
+                        warn_msg = f"Skipping {filename}: unsupported audio extension '{file_extension}'"
+                        print(f"worker-comfyui - {warn_msg}")
+                        continue
+
+                    audio_bytes = get_image_data(filename, subfolder, audio_type)
+
+                    if audio_bytes:
+                        if os.environ.get("BUCKET_ENDPOINT_URL"):
+                            try:
+                                with tempfile.NamedTemporaryFile(
+                                    suffix=file_extension, delete=False
+                                ) as temp_file:
+                                    temp_file.write(audio_bytes)
+                                    temp_file_path = temp_file.name
+                                print(
+                                    f"worker-comfyui - Uploading {filename} to S3..."
+                                )
+                                s3_url = rp_upload.upload_image(job_id, temp_file_path)
+                                os.remove(temp_file_path)
+                                audio_data.append(
+                                    {
+                                        "filename": filename,
+                                        "type": "s3_url",
+                                        "data": s3_url,
+                                    }
+                                )
+                            except Exception as e:
+                                error_msg = f"Error uploading {filename} to S3: {e}"
+                                print(f"worker-comfyui - {error_msg}")
+                                errors.append(error_msg)
+                                if "temp_file_path" in locals() and os.path.exists(
+                                    temp_file_path
+                                ):
+                                    try:
+                                        os.remove(temp_file_path)
+                                    except OSError as rm_err:
+                                        print(
+                                            f"worker-comfyui - Error removing temp file {temp_file_path}: {rm_err}"
+                                        )
+                        else:
+                            try:
+                                base64_audio = base64.b64encode(audio_bytes).decode(
+                                    "utf-8"
+                                )
+                                audio_data.append(
+                                    {
+                                        "filename": filename,
+                                        "type": "base64",
+                                        "data": base64_audio,
+                                    }
+                                )
+                                print(f"worker-comfyui - Encoded {filename} as base64")
+                            except Exception as e:
+                                error_msg = (
+                                    f"Error encoding {filename} to base64: {e}"
+                                )
+                                print(f"worker-comfyui - {error_msg}")
+                                errors.append(error_msg)
+                    else:
+                        error_msg = f"Failed to fetch audio data for {filename} from /view endpoint."
+                        errors.append(error_msg)
+
             # Check for other output types
-            other_keys = [k for k in node_output.keys() if k != "images"]
+            other_keys = [k for k in node_output.keys() if k not in ("images", "audio")]
             if other_keys:
                 warn_msg = (
                     f"Node {node_id} produced unhandled output keys: {other_keys}."
@@ -875,24 +963,31 @@ def handler(job):
     if output_data:
         final_result["images"] = output_data
 
+    if audio_data:
+        final_result["audio"] = audio_data
+
     if errors:
         final_result["errors"] = errors
         print(f"worker-comfyui - Job completed with errors/warnings: {errors}")
 
-    if not output_data and errors:
-        print(f"worker-comfyui - Job failed with no output images.")
+    has_output = bool(output_data or audio_data)
+
+    if not has_output and errors:
+        print(f"worker-comfyui - Job failed with no output.")
         return {
             "error": "Job processing failed",
             "details": errors,
         }
-    elif not output_data and not errors:
+    elif not has_output and not errors:
         print(
-            f"worker-comfyui - Job completed successfully, but the workflow produced no images."
+            f"worker-comfyui - Job completed successfully, but the workflow produced no output."
         )
-        final_result["status"] = "success_no_images"
+        final_result["status"] = "success_no_output"
         final_result["images"] = []
 
-    print(f"worker-comfyui - Job completed. Returning {len(output_data)} image(s).")
+    print(
+        f"worker-comfyui - Job completed. Returning {len(output_data)} image(s) and {len(audio_data)} audio file(s)."
+    )
     return final_result
 
 
