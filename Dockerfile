@@ -45,6 +45,7 @@ RUN wget -qO- https://astral.sh/uv/install.sh | sh \
     && uv venv /opt/venv
 
 # Use the virtual environment for all subsequent commands
+ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
 # Install comfy-cli + dependencies needed by it to install ComfyUI
@@ -89,7 +90,8 @@ ENV PIP_NO_INPUT=1
 COPY scripts/comfy-manager-set-mode.sh /usr/local/bin/comfy-manager-set-mode
 RUN chmod +x /usr/local/bin/comfy-manager-set-mode
 
-# Stage 2: Download models
+# Stage 2: Final image
+FROM base AS final
 
 # Change working directory to ComfyUI
 WORKDIR /comfyui
@@ -97,7 +99,5 @@ WORKDIR /comfyui
 # Create necessary directories upfront
 RUN mkdir -p models/checkpoints models/vae models/unet models/clip models/text_encoders models/diffusion_models models/model_patches
 
-# Stage 3: Final image
 # Set the default command to run when starting the container
 CMD ["/start.sh"]
-FROM base AS final
