@@ -56,7 +56,7 @@ if os.environ.get("WEBSOCKET_TRACE", "false").lower() == "true":
 # Host where ComfyUI is running
 COMFY_HOST = "127.0.0.1:8188"
 
-AUDIO_EXTENSIONS = {".ogg", ".ogx", ".flac", ".mp3", ".wav"}
+AUDIO_EXTENSIONS = {".ogg", ".ogx", ".opus", ".flac", ".mp3", ".wav"}
 # Enforce a clean state after each job is done
 # see https://docs.runpod.io/docs/handler-additional-controls#refresh-worker
 REFRESH_WORKER = os.environ.get("REFRESH_WORKER", "false").lower() == "true"
