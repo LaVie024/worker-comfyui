@@ -89,11 +89,7 @@ ENV PIP_NO_INPUT=1
 COPY scripts/comfy-manager-set-mode.sh /usr/local/bin/comfy-manager-set-mode
 RUN chmod +x /usr/local/bin/comfy-manager-set-mode
 
-# Set the default command to run when starting the container
-CMD ["/start.sh"]
-
 # Stage 2: Download models
-FROM base AS downloader
 
 # Change working directory to ComfyUI
 WORKDIR /comfyui
@@ -102,4 +98,6 @@ WORKDIR /comfyui
 RUN mkdir -p models/checkpoints models/vae models/unet models/clip models/text_encoders models/diffusion_models models/model_patches
 
 # Stage 3: Final image
+# Set the default command to run when starting the container
+CMD ["/start.sh"]
 FROM base AS final
